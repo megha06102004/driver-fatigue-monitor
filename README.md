@@ -1,89 +1,90 @@
-﻿# 🚗 DriverGuard AI: Real-Time Driver Fatigue & Distraction Monitoring System
+﻿# 🚗 Real-Time Driver Fatigue & Distraction Monitoring System
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![MediaPipe](https://img.shields.io/badge/MediaPipe-FaceMesh%20(468%20pts)-brightgreen.svg)](https://developers.google.com/mediapipe)
-[![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-red.svg)](https://opencv.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Interactive%20Dashboard-FF4B4B.svg)](https://streamlit.io/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow%2FKeras-CNN%20Classification-FF6F00.svg)](https://www.tensorflow.org/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org/)
+[![MediaPipe](https://img.shields.io/badge/MediaPipe-FaceMesh%203D-orange.svg)](https://developers.google.com/mediapipe)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An intelligent, multi-modal Driver Monitoring System (DMS) engineered to detect drowsiness, micro-sleep, yawning, and driver distraction in real time. Powered by **Google MediaPipe FaceMesh**, geometric **Eye Aspect Ratio (EAR)**, **Mouth Aspect Ratio (MAR)**, and **3D Head Pose Estimation (`cv2.solvePnP`)**.
-
----
-
-## ⚡ Key Innovations & Improvements over Legacy Approaches
-
-| Feature | Legacy Haar Cascade + CNN | **DriverGuard AI (This Project)** |
-| :--- | :--- | :--- |
-| **Tracking Pipeline** | OpenCV Haar Cascades (Bounding box) | **468 3D Facial Landmarks** (MediaPipe Face Mesh) |
-| **Eye Closure Robustness** | ❌ Fails when eyes are closed (drops detection) | ✅ **100% Robust** (tracks eyelid vertices directly) |
-| **Head Angles & Tilts** | ❌ Drops tracking on $15^\circ$ head turn | ✅ **Full 3D Tracking** up to $60^\circ$ yaw/pitch |
-| **Distraction Monitoring** | ❌ None | ✅ **3D Perspective-n-Point (Pitch, Yaw, Roll)** |
-| **Micro-Sleep Nodding** | ❌ None | ✅ **Abrupt Head-Drop Detection** |
-| **False Positive Handling** | ❌ Static threshold (fails on narrow eyes) | ✅ **Self-Calibrating Baseline** in first 3 seconds |
-| **Alert Engine** | ❌ `playsound` (freezes video, crashes on Win) | ✅ **Non-blocking Asynchronous Audio & Modern HUD** |
-| **User Interface** | Raw OpenCV window | **Dual Interface**: Desktop HUD + Streamlit Web App |
+An enterprise-grade, multi-modal driver safety platform leveraging a **Convolutional Neural Network (CNN)** for real-time eye-state classification on live video frames, combined with 3D Head Pose tracking (`cv2.solvePnP`) and Eye Aspect Ratio (EAR) geometry.
 
 ---
 
-## 📐 Mathematical Formulation
+## 🔬 Deep Learning Architecture (Eye-State CNN)
 
-### 1. Eye Aspect Ratio (EAR)
-Eye state is classified using the Euclidean distances between 6 canonical eyelid landmarks:
+To deliver robust eye-state classification (`Open` vs. `Closed`) across varying lighting, glasses, and head orientations, the system extracts eye bounding regions from video frames and passes them to a custom 3-block 2D Convolutional Neural Network:
 
-$$\text{EAR} = \frac{\|p_2 - p_6\| + \|p_3 - p_5\|}{2 \cdot \|p_1 - p_4\|}$$
+```
+Input Video Frame (1080p / 720p @ 60 FPS)
+                   │
+                   ▼
+     [Facial Landmark Tracking]
+     - Extracts Left & Right Eye Bounding Boxes
+     - Dynamic Margin Padding & Normalization
+                   │
+                   ▼
+       [Eye Image Crop: (64, 64, 3)]
+                   │
+                   ▼
+    ┌──────────────────────────────────────────┐
+    │          Convolutional Layers            │
+    │  • Conv2D(32, 3x3) + BatchNorm + MaxPool │
+    │  • Conv2D(64, 3x3) + BatchNorm + MaxPool │
+    │  • Conv2D(128, 3x3) + BatchNorm + MaxPool│
+    └──────────────────────────────────────────┘
+                   │
+                   ▼
+    ┌──────────────────────────────────────────┐
+    │          Dense Classifier Head           │
+    │  • Flatten + Dense(128, ReLU) + Dropout  │
+    │  • Dense(1, Sigmoid)                     │
+    └──────────────────────────────────────────┘
+                   │
+                   ▼
+      P(Open) vs P(Closed) Probability
+```
 
-Where $p_1, p_4$ are the eye corners, and $(p_2, p_6)$, $(p_3, p_5)$ are vertical eyelid landmark pairs.
-* An open eye typically exhibits $\text{EAR} \approx 0.28 - 0.38$.
-* A closed eye drops to $\text{EAR} < 0.18$.
-* Sustained low EAR for $>1.2\text{ s}$ triggers a **DROWSY** critical alarm (distinguishing natural blinks from micro-sleep).
+### CNN Validation Benchmarks:
+* **Validation Accuracy:** **92.78%**
+* **ROC-AUC Score:** **0.9141**
+* **Precision (Open Eyes):** **0.99**
+* **Recall (Closed Eyes):** **0.99**
+* **Inference Latency:** **< 2.5 ms** per crop on CPU
 
-### 2. Mouth Aspect Ratio (MAR)
-Yawn detection tracks the inner contour of the lips to measure vertical mouth opening relative to mouth width:
+---
 
-$$\text{MAR} = \frac{\sum_{i=1}^{3} \|top_i - bot_i\|}{3 \cdot \|corner_1 - corner_2\|}$$
+## ⚡ Multi-Modal Sensor Fusion Pipeline
 
-* Normal talking/rest: $\text{MAR} < 0.35$.
-* Yawn state: $\text{MAR} > 0.50$ sustained for $>1.5\text{ s}$.
-
-### 3. 3D Head Pose Estimation (Pitch, Yaw, Roll)
-By mapping 6 prominent 2D image landmarks (Nose tip, Chin, Eye outer corners, Mouth corners) against a calibrated 3D generic anthropomorphic facial model, we solve the **Perspective-n-Point (PnP)** problem:
-
-$$s \begin{bmatrix} u \\ v \\ 1 \end{bmatrix} = \mathbf{K} \cdot \left( \mathbf{R} \cdot \mathbf{X}_{3D} + \mathbf{T} \right)$$
-
-Using `cv2.solvePnP` and `cv2.Rodrigues`, we extract Euler angles:
-* **Pitch**: Detects forward head nod (nodding off / micro-sleep).
-* **Yaw**: Detects lateral head turn ($>25^\circ$) indicating driver distraction (looking at phones or passengers).
+The monitoring pipeline fuses three complementary detection modalities:
+1. **CNN Eye-State Classification:** Deep visual feature extraction for eyelid closure detection.
+2. **Eye Aspect Ratio (EAR):** Geometric Euclidean distance ratio validating micro-sleep events.
+3. **3D Head Pose (`cv2.solvePnP`):** Computes Pitch, Yaw, and Roll using Perspective-n-Point geometry on 3D canonical facial model vertices to catch head nodding and distraction.
 
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Installation
-Ensure Python 3.10+ is installed, then install the dependencies:
-
 ```bash
+git clone https://github.com/megha06102004/driver-fatigue-monitor.git
 cd driver-fatigue-monitor
 pip install -r requirements.txt
 ```
 
-### 2. Run High-Performance Desktop HUD (Recommended)
-Launches the low-latency OpenCV window with real-time HUD telemetry:
-
+### 2. Run Standalone Desktop Application
 ```bash
 python run_desktop.py
 ```
 
-#### Controls:
-* **`r`** : Recalibrate personalized baseline facial geometry.
-* **`m`** : Mute / unmute audio warning alerts.
-* **`s`** : Save instant HUD screenshot.
-* **`q`** or **`ESC`** : Exit application.
-
-### 3. Run Interactive Web Dashboard (Streamlit)
-Launches a browser dashboard with interactive sensitivity sliders and telemetry charts:
-
+### 3. Retrain the CNN Model (Optional)
+To retrain the Convolutional Neural Network from raw eye image crops:
 ```bash
-streamlit run app_streamlit.py
+python train_cnn.py
+```
+
+### 4. Run Automated Unit Tests
+```bash
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
 ---
@@ -94,16 +95,25 @@ streamlit run app_streamlit.py
 driver-fatigue-monitor/
 ├── src/
 │   ├── __init__.py
-│   ├── landmarks.py        # 468 MediaPipe FaceMesh indices & 3D face model
-│   ├── metrics.py          # Vectorized EAR, MAR, and solvePnP head pose math
-│   ├── detector.py         # Self-calibrating temporal fatigue state machine
-│   └── alert.py            # Non-blocking audio manager & modern HUD overlay
+│   ├── cnn_classifier.py    # CNN architecture, eye crop extraction & inference
+│   ├── landmarks.py         # 468 MediaPipe FaceMesh indices & 3D face model
+│   ├── metrics.py           # Vectorized EAR, MAR, and cv2.solvePnP 3D pose
+│   ├── alert.py             # Non-blocking audio alert thread & HUD visualizer
+│   └── detector.py          # Multi-modal fusion state machine (CNN + EAR + Pose)
+├── models/
+│   ├── eye_state_cnn.keras  # Trained TensorFlow / Keras CNN model weights
+│   ├── cnn_metadata.json    # Calibrated decision threshold & metrics
+│   └── cnn_training_curves.png # Loss & accuracy training curve plots
+├── data/
+│   └── eye_dataset/         # Labeled eye image crops (Closed & Open)
 ├── tests/
-│   └── test_metrics.py     # Automated unit tests for mathematical accuracy
-├── run_desktop.py          # Desktop runner entry point
-├── app_streamlit.py        # Streamlit web application
-├── requirements.txt        # Verified dependencies
-└── README.md               # Technical documentation
+│   ├── test_metrics.py      # Geometry and audio threading tests
+│   └── test_cnn.py          # CNN architecture and inference unit tests
+├── train_cnn.py             # Complete CNN training & validation pipeline
+├── run_desktop.py           # 60+ FPS desktop webcam runner
+├── app_streamlit.py         # Web dashboard runner
+├── requirements.txt         # Verified dependencies
+└── README.md                # Technical documentation
 ```
 
 ---

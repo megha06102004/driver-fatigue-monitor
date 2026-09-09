@@ -1,4 +1,4 @@
-﻿"""
+"""
 Driver Fatigue & Distraction Detector.
 Integrates MediaPipe FaceMesh, metrics calculations, adaptive calibration, and state machine.
 """
@@ -21,6 +21,7 @@ from .metrics import (
     draw_pose_axes,
 )
 from .alert import AudioManager
+from .cnn_classifier import EyeCNNClassifier, crop_eye_region
 
 
 class FatigueDetector:
@@ -71,6 +72,9 @@ class FatigueDetector:
 
         # Audio Manager
         self.audio = AudioManager(enabled=enable_audio)
+
+        # CNN Eye State Classifier
+        self.cnn = EyeCNNClassifier()
 
         # Calibration state
         self.is_calibrating = True
@@ -157,10 +161,17 @@ class FatigueDetector:
         right_ear = calculate_ear(right_eye_pts)
         avg_ear = (left_ear + right_ear) / 2.0
 
-        # 2. Compute MAR
+        # 2. CNN-Based Eye-State Classification
+        left_crop = crop_eye_region(frame, left_eye_pts[:, :2])
+        right_crop = crop_eye_region(frame, right_eye_pts[:, :2])
+        left_cnn_state, left_cnn_prob = self.cnn.predict_eye(left_crop)
+        right_cnn_state, right_cnn_prob = self.cnn.predict_eye(right_crop)
+        cnn_eyes_closed = (left_cnn_state == "Closed" and right_cnn_state == "Closed")
+
+        # 3. Compute MAR
         mar = calculate_mar(landmarks)
 
-        # 3. Compute 3D Head Pose
+        # 4. Compute 3D Head Pose
         pitch, yaw, roll, rvec, tvec = calculate_head_pose(landmarks, img_w, img_h)
 
         # Render 3D pose coordinate axes on nose
@@ -174,6 +185,11 @@ class FatigueDetector:
             "ear": avg_ear,
             "left_ear": left_ear,
             "right_ear": right_ear,
+            "cnn_left_state": left_cnn_state,
+            "cnn_right_state": right_cnn_state,
+            "cnn_left_prob": left_cnn_prob,
+            "cnn_right_prob": right_cnn_prob,
+            "cnn_eyes_closed": cnn_eyes_closed,
             "mar": mar,
             "pitch": pitch,
             "yaw": yaw,
@@ -213,8 +229,9 @@ class FatigueDetector:
         # 5. Fatigue & Distraction State Machine
         status = "NORMAL"
 
-        # A. Eye Closure / Drowsiness Check
-        if avg_ear < self.ear_threshold:
+        # A. Eye Closure / Drowsiness Check (Hybrid: Geometric EAR + CNN Video Frame Classifier)
+        is_closed = (avg_ear < self.ear_threshold) or cnn_eyes_closed
+        if is_closed:
             if self.eye_closed_start_time is None:
                 self.eye_closed_start_time = now
 

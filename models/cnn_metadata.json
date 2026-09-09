@@ -1,0 +1,5 @@
+{
+  "optimal_threshold": 0.001063086441718042,
+  "validation_accuracy": 0.9278350515463918,
+  "roc_auc": 0.914
+}
