@@ -1,6 +1,6 @@
-﻿"""
+"""
 Convolutional Neural Network (CNN) for Eye State Classification (Open vs. Closed).
-Fulfills the resume requirement: "leveraging CNN-based eye-state classification on video frames".
+Optimized binary classifier for real-time video frame eye patches.
 """
 
 import os
